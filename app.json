@@ -25,7 +25,8 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
       },
-      "newArchEnabled": true
+      "newArchEnabled": true,
+      "package": "com.otrebor.producaomaster"
     },
     "web": {
       "favicon": "./assets/favicon.png"
