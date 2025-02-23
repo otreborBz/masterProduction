@@ -1,13 +1,16 @@
-import React, { useState } from 'react';
-import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal } from 'react-native';
+import React, { useState, useMemo } from 'react';
+import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal, Platform, Alert } from 'react-native';
 import { globalStyles, colors } from '../styles/globalStyles';
 import { MaterialIcons } from '@expo/vector-icons';
+import DateTimePickerModal from "react-native-modal-datetime-picker";
 
 export default function ProductionDetailScreen({ route, navigation }) {
   const { linha, registros } = route.params;
   const [selectedRegistro, setSelectedRegistro] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [expandedRow, setExpandedRow] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [isDatePickerVisible, setDatePickerVisible] = useState(false);
 
   // Função para converter horário em minutos para comparação
   const timeToMinutes = (timeString, turno) => {
@@ -52,12 +55,45 @@ export default function ProductionDetailScreen({ route, navigation }) {
     }
   };
 
-  // Ordenar registros por horário e turno
-  const sortedRegistros = [...registros].sort((a, b) => {
-    const timeA = timeToMinutes(a.horaInicio, a.turno);
-    const timeB = timeToMinutes(b.horaInicio, b.turno);
-    return timeA - timeB;
-  });
+  // Função para formatar a data
+  const formatDate = (date) => {
+    return date.toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+  };
+
+  // Filtrar registros pela data selecionada
+  const filteredRegistros = useMemo(() => {
+    return registros.filter(registro => {
+      const registroDate = new Date(registro.data);
+      return registroDate.toDateString() === selectedDate.toDateString();
+    });
+  }, [registros, selectedDate]);
+
+  // Ordenar registros filtrados por horário e turno
+  const sortedRegistros = useMemo(() => {
+    return [...filteredRegistros].sort((a, b) => {
+      const timeA = timeToMinutes(a.horaInicio, a.turno);
+      const timeB = timeToMinutes(b.horaInicio, b.turno);
+      return timeA - timeB;
+    });
+  }, [filteredRegistros]);
+
+  // Funções para o DatePicker
+  const showDatePicker = () => {
+    setDatePickerVisible(true);
+  };
+
+  const hideDatePicker = () => {
+    setDatePickerVisible(false);
+  };
+
+  const handleConfirm = (date) => {
+    setSelectedDate(date);
+    hideDatePicker();
+  };
 
   const formatTime = (timeString) => {
     return timeString || '--:--';
@@ -214,6 +250,32 @@ export default function ProductionDetailScreen({ route, navigation }) {
     </View>
   );
 
+  // Componente do seletor de data
+  const DateSelector = () => (
+    <View style={styles.dateSelector}>
+      <TouchableOpacity 
+        style={styles.dateSelectorButton}
+        onPress={showDatePicker}
+      >
+        <MaterialIcons name="calendar-today" size={24} color={colors.primary} />
+        <Text style={styles.dateSelectorText}>{formatDate(selectedDate)}</Text>
+        <MaterialIcons name="arrow-drop-down" size={24} color={colors.primary} />
+      </TouchableOpacity>
+
+      <DateTimePickerModal
+        isVisible={isDatePickerVisible}
+        mode="date"
+        onConfirm={handleConfirm}
+        onCancel={hideDatePicker}
+        date={selectedDate}
+        locale="pt-BR"
+        cancelTextIOS="Cancelar"
+        confirmTextIOS="Confirmar"
+        headerTextIOS="Escolha uma data"
+      />
+    </View>
+  );
+
   return (
     <View style={globalStyles.container}>
       <View style={styles.header}>
@@ -227,18 +289,28 @@ export default function ProductionDetailScreen({ route, navigation }) {
         <View style={styles.headerSpace} />
       </View>
 
+      <DateSelector />
+
       <ScrollView>
         <View style={styles.tableContainer}>
           <TableHeader />
-          {registrosComAcumulado.map((registro, index) => (
-            <TableRow 
-              key={index} 
-              registro={registro} 
-              index={index} 
-              acumulado={registro.acumulado}
-            />
-          ))}
-          <TotalRow />
+          {sortedRegistros.length > 0 ? (
+            <>
+              {sortedRegistros.map((registro, index) => (
+                <TableRow 
+                  key={index} 
+                  registro={registro} 
+                  index={index} 
+                  acumulado={registro.acumulado}
+                />
+              ))}
+              <TotalRow />
+            </>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>Nenhum registro encontrado para esta data</Text>
+            </View>
+          )}
         </View>
       </ScrollView>
 
@@ -399,5 +471,34 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: 'bold',
     color: colors.text,
+  },
+  dateSelector: {
+    padding: 15,
+    backgroundColor: colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  dateSelectorButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    padding: 12,
+    borderRadius: 8,
+    gap: 10,
+    justifyContent: 'center', // Centraliza os elementos
+  },
+  dateSelectorText: {
+    fontSize: 16,
+    color: colors.text,
+    fontWeight: '500',
+    marginHorizontal: 10,
+  },
+  emptyContainer: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  emptyText: {
+    color: colors.textLight,
+    fontSize: 16,
   },
 }); 

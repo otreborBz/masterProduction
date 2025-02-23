@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, FlatList, RefreshControl, Dimensions, ScrollView, Modal, Pressable, Alert } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, FlatList, RefreshControl, Dimensions, ScrollView, Modal, Pressable, Alert, TextInput } from 'react-native';
 import { getFirestore, collection, query, orderBy, onSnapshot, where, deleteDoc, getDocs } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { globalStyles, colors } from '../styles/globalStyles';
@@ -14,6 +14,8 @@ export default function ProductionDataScreen({ navigation }) {
   const [selectedTurno, setSelectedTurno] = useState('Todos');
   const [turnoModalVisible, setTurnoModalVisible] = useState(false);
   const [userName, setUserName] = useState('');
+  const [passwordModalVisible, setPasswordModalVisible] = useState(false);
+  const [password, setPassword] = useState('');
   const db = getFirestore();
   const auth = getAuth();
 
@@ -25,105 +27,51 @@ export default function ProductionDataScreen({ navigation }) {
     }
   };
 
-  const handleDataCleanup = async () => {
-    Alert.alert(
-      'Limpar Dados',
-      'Escolha quais dados deseja remover:',
-      [
-        {
-          text: 'Cancelar',
-          style: 'cancel'
-        },
-        {
-          text: 'Dados Antigos',
-          onPress: async () => {
-            Alert.alert(
-              'Limpar Dados Antigos',
-              'Isso irá remover todos os dados anteriores à data atual. Esta ação não pode ser desfeita.',
-              [
-                {
-                  text: 'Cancelar',
-                  style: 'cancel'
-                },
-                {
-                  text: 'Confirmar',
-                  style: 'destructive',
-                  onPress: async () => {
-                    try {
-                      const today = new Date();
-                      today.setHours(0, 0, 0, 0);
+  const handleDataCleanup = () => {
+    setPasswordModalVisible(true);
+  };
 
-                      const querySnapshot = await getDocs(collection(db, 'producao_hora'));
-                      let deletedCount = 0;
+  const handlePasswordSubmit = () => {
+    if (password === 'master') {
+      setPasswordModalVisible(false);
+      setPassword('');
+      Alert.alert(
+        'Confirmação Final',
+        'Isso irá remover TODOS os dados do sistema. Esta ação não pode ser desfeita.',
+        [
+          {
+            text: 'Cancelar',
+            style: 'cancel'
+          },
+          {
+            text: 'Confirmar',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                const querySnapshot = await getDocs(collection(db, 'producao_hora'));
+                let deletedCount = 0;
 
-                      for (const doc of querySnapshot.docs) {
-                        const docData = doc.data();
-                        const docDate = new Date(docData.data);
-                        docDate.setHours(0, 0, 0, 0);
-
-                        if (docDate < today) {
-                          await deleteDoc(doc.ref);
-                          deletedCount++;
-                        }
-                      }
-
-                      Alert.alert(
-                        'Sucesso',
-                        deletedCount > 0 
-                          ? `${deletedCount} registros antigos foram removidos.`
-                          : 'Não foram encontrados registros antigos para remover.'
-                      );
-                    } catch (error) {
-                      console.error('Erro ao limpar dados:', error);
-                      Alert.alert('Erro', 'Não foi possível limpar os dados antigos.');
-                    }
-                  }
+                for (const doc of querySnapshot.docs) {
+                  await deleteDoc(doc.ref);
+                  deletedCount++;
                 }
-              ]
-            );
-          }
-        },
-        {
-          text: 'Todos os Dados',
-          style: 'destructive',
-          onPress: async () => {
-            Alert.alert(
-              'Limpar Todos os Dados',
-              'Isso irá remover TODOS os dados do sistema. Esta ação não pode ser desfeita.',
-              [
-                {
-                  text: 'Cancelar',
-                  style: 'cancel'
-                },
-                {
-                  text: 'Confirmar',
-                  style: 'destructive',
-                  onPress: async () => {
-                    try {
-                      const querySnapshot = await getDocs(collection(db, 'producao_hora'));
-                      let deletedCount = 0;
 
-                      for (const doc of querySnapshot.docs) {
-                        await deleteDoc(doc.ref);
-                        deletedCount++;
-                      }
-
-                      Alert.alert(
-                        'Sucesso',
-                        `${deletedCount} registros foram removidos.`
-                      );
-                    } catch (error) {
-                      console.error('Erro ao limpar dados:', error);
-                      Alert.alert('Erro', 'Não foi possível limpar os dados.');
-                    }
-                  }
-                }
-              ]
-            );
+                Alert.alert(
+                  'Sucesso',
+                  `${deletedCount} registros foram removidos.`
+                );
+              } catch (error) {
+                console.error('Erro ao limpar dados:', error);
+                Alert.alert('Erro', 'Não foi possível limpar os dados.');
+              }
+            }
           }
-        }
-      ]
-    );
+        ]
+      );
+    } else {
+      Alert.alert('Erro', 'Senha incorreta!');
+      setPassword('');
+    }
   };
 
   useEffect(() => {
@@ -354,6 +302,47 @@ export default function ProductionDataScreen({ navigation }) {
         }
         contentContainerStyle={styles.listContainer}
       />
+
+      <Modal
+        visible={passwordModalVisible}
+        transparent={true}
+        animationType="fade"
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Verificação de Segurança</Text>
+            <Text style={styles.modalSubtitle}>Digite a senha para confirmar a exclusão:</Text>
+            
+            <TextInput
+              style={styles.passwordInput}
+              value={password}
+              onChangeText={setPassword}
+              placeholder="Digite a senha"
+              secureTextEntry
+              autoCapitalize="none"
+            />
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => {
+                  setPasswordModalVisible(false);
+                  setPassword('');
+                }}
+              >
+                <Text style={styles.cancelButtonText}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.confirmButton]}
+                onPress={handlePasswordSubmit}
+              >
+                <Text style={styles.confirmButtonText}>Confirmar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -563,5 +552,70 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: colors.white,
+    borderRadius: 10,
+    padding: 20,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.text,
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: colors.textLight,
+    marginBottom: 20,
+  },
+  passwordInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+  modalButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    minWidth: 100,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  confirmButton: {
+    backgroundColor: colors.danger,
+  },
+  cancelButtonText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  confirmButtonText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '500',
   },
 }); 
