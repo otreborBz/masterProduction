@@ -1,8 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal, Platform, Alert } from 'react-native';
-import { globalStyles, colors } from '../styles/globalStyles';
-import { MaterialIcons } from '@expo/vector-icons';
+import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal, Platform, Alert, Dimensions } from 'react-native';
+import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import DateTimePickerModal from "react-native-modal-datetime-picker";
+import { globalStyles, colors } from '../styles/globalStyles';
+
+const screenWidth = Dimensions.get('window').width;
 
 export default function ProductionDetailScreen({ route, navigation }) {
   const { linha, registros } = route.params;
@@ -104,12 +106,11 @@ export default function ProductionDetailScreen({ route, navigation }) {
       <Text style={[styles.headerCell, { flex: 1.5 }]}>Horário</Text>
       <Text style={styles.headerCell}>Meta</Text>
       <Text style={styles.headerCell}>Prod.</Text>
-      <Text style={styles.headerCell}>Acum.</Text>
       <Text style={[styles.headerCell, { flex: 0.8 }]}>Paradas</Text>
     </View>
   );
 
-  const TableRow = ({ registro, index, acumulado }) => {
+  const TableRow = ({ registro, index }) => {
     const isExpanded = expandedRow === index;
 
     return (
@@ -130,16 +131,10 @@ export default function ProductionDetailScreen({ route, navigation }) {
           </Text>
           <Text style={styles.cell}>{registro.meta}</Text>
           <Text style={[
-            styles.cell, 
-            registro.realProduzido >= registro.meta ? styles.successText : styles.warningText
+            styles.cell,
+            Number(registro.realProduzido) >= Number(registro.meta) ? styles.successText : styles.warningText
           ]}>
             {registro.realProduzido}
-          </Text>
-          <Text style={[
-            styles.cell,
-            acumulado >= (registro.meta * (index + 1)) ? styles.successText : styles.warningText
-          ]}>
-            {acumulado}
           </Text>
           <View style={[styles.cell, { flex: 0.8, flexDirection: 'row', justifyContent: 'center' }]}>
             {registro.paradas?.length > 0 ? (
@@ -174,43 +169,6 @@ export default function ProductionDetailScreen({ route, navigation }) {
     );
   };
 
-  const ParadasModal = () => (
-    <Modal
-      animationType="slide"
-      transparent={true}
-      visible={modalVisible}
-      onRequestClose={() => setModalVisible(false)}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>
-              Paradas {formatTime(selectedRegistro?.horaInicio)} - {formatTime(selectedRegistro?.horaFim)}
-            </Text>
-            <TouchableOpacity 
-              style={styles.closeButton}
-              onPress={() => setModalVisible(false)}
-            >
-              <MaterialIcons name="close" size={24} color={colors.text} />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={styles.paradasList}>
-            {selectedRegistro?.paradas.map((parada, index) => (
-              <View key={index} style={styles.paradaItem}>
-                <View style={styles.paradaHeader}>
-                  <Text style={styles.paradaCodigo}>Código: {parada.codigo}</Text>
-                  <Text style={styles.paradaTempo}>{parada.minutosPerdidos} min</Text>
-                </View>
-                <Text style={styles.paradaDescricao}>{parada.descricao}</Text>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
-  );
-
   // Calcular acumulados
   const registrosComAcumulado = sortedRegistros.map((registro, index) => {
     const acumulado = sortedRegistros
@@ -220,12 +178,11 @@ export default function ProductionDetailScreen({ route, navigation }) {
   });
 
   // Calcular totais
-  const totals = sortedRegistros.reduce((acc, registro) => {
-    acc.totalMeta += Number(registro.meta) || 0;
-    acc.totalProducao += Number(registro.realProduzido) || 0;
-    acc.totalParadas += registro.paradas?.length || 0;
-    return acc;
-  }, { totalMeta: 0, totalProducao: 0, totalParadas: 0 });
+  const totals = sortedRegistros.reduce((acc, registro) => ({
+    totalMeta: acc.totalMeta + Number(registro.meta),
+    totalProducao: acc.totalProducao + Number(registro.realProduzido),
+    totalParadas: acc.totalParadas + (registro.paradas?.length || 0)
+  }), { totalMeta: 0, totalProducao: 0, totalParadas: 0 });
 
   // Componente para linha de totais
   const TotalRow = () => (
@@ -238,7 +195,6 @@ export default function ProductionDetailScreen({ route, navigation }) {
       ]}>
         {totals.totalProducao}
       </Text>
-      <Text style={styles.totalCell}>{totals.totalProducao}</Text>
       <View style={[styles.totalCell, { flex: 0.8, flexDirection: 'row', justifyContent: 'center' }]}>
         {totals.totalParadas > 0 && (
           <>
@@ -276,6 +232,93 @@ export default function ProductionDetailScreen({ route, navigation }) {
     </View>
   );
 
+  // Estatísticas calculadas
+  const statistics = useMemo(() => {
+    if (!sortedRegistros.length) return null;
+
+    const total = sortedRegistros.reduce((acc, reg) => acc + Number(reg.realProduzido), 0);
+    const meta = sortedRegistros.reduce((acc, reg) => acc + Number(reg.meta), 0);
+    const mediaProducao = total / sortedRegistros.length;
+    const eficiencia = (total / meta) * 100;
+    
+    // Agrupar paradas por tipo
+    const paradasPorTipo = sortedRegistros.reduce((acc, reg) => {
+      reg.paradas?.forEach(parada => {
+        if (!acc[parada.codigo]) {
+          acc[parada.codigo] = {
+            count: 0,
+            minutos: 0,
+            descricao: parada.descricao
+          };
+        }
+        acc[parada.codigo].count++;
+        acc[parada.codigo].minutos += Number(parada.minutosPerdidos);
+      });
+      return acc;
+    }, {});
+
+    return {
+      total,
+      meta,
+      mediaProducao,
+      eficiencia,
+      paradasPorTipo
+    };
+  }, [sortedRegistros]);
+
+  // Dados para o gráfico de linha
+  const lineChartData = {
+    labels: sortedRegistros.map(reg => reg.horaInicio),
+    datasets: [
+      {
+        data: sortedRegistros.map(reg => Number(reg.realProduzido)),
+        color: () => colors.primary,
+        strokeWidth: 2
+      },
+      {
+        data: sortedRegistros.map(reg => Number(reg.meta)),
+        color: () => colors.warning,
+        strokeWidth: 2,
+        dotted: true
+      }
+    ]
+  };
+
+  // Dados para o gráfico de pizza de paradas
+  const pieChartData = statistics?.paradasPorTipo ? 
+    Object.entries(statistics.paradasPorTipo).map(([codigo, data], index) => ({
+      name: `${codigo} - ${data.descricao}`,
+      minutos: data.minutos,
+      color: colors.chartColors[index % colors.chartColors.length],
+      legendFontColor: colors.text,
+      legendFontSize: 12
+    })) : [];
+
+  // Componente de Cards Estatísticos
+  const StatisticsCards = () => (
+    <View style={styles.statsContainer}>
+      <View style={styles.statsCard}>
+        <FontAwesome5 name="industry" size={24} color={colors.primary} />
+        <Text style={styles.statsValue}>{statistics?.total || 0}</Text>
+        <Text style={styles.statsLabel}>Produção Total</Text>
+      </View>
+
+      <View style={styles.statsCard}>
+        <FontAwesome5 name="percentage" size={24} color={colors.success} />
+        <Text style={styles.statsValue}>{statistics?.eficiencia.toFixed(1)}%</Text>
+        <Text style={styles.statsLabel}>Eficiência</Text>
+      </View>
+
+      <View style={styles.statsCard}>
+        <MaterialIcons name="warning" size={24} color={colors.warning} />
+        <Text style={styles.statsValue}>
+          {Object.values(statistics?.paradasPorTipo || {}).reduce((acc, curr) => acc + curr.minutos, 0)}min
+        </Text>
+        <Text style={styles.statsLabel}>Tempo Parado</Text>
+      </View>
+    </View>
+  );
+
   return (
     <View style={globalStyles.container}>
       <View style={styles.header}>
@@ -292,6 +335,10 @@ export default function ProductionDetailScreen({ route, navigation }) {
       <DateSelector />
 
       <ScrollView>
+        {statistics && (
+          <StatisticsCards />
+        )}
+
         <View style={styles.tableContainer}>
           <TableHeader />
           {sortedRegistros.length > 0 ? (
@@ -300,8 +347,7 @@ export default function ProductionDetailScreen({ route, navigation }) {
                 <TableRow 
                   key={index} 
                   registro={registro} 
-                  index={index} 
-                  acumulado={registro.acumulado}
+                  index={index}
                 />
               ))}
               <TotalRow />
@@ -313,8 +359,6 @@ export default function ProductionDetailScreen({ route, navigation }) {
           )}
         </View>
       </ScrollView>
-
-      <ParadasModal />
     </View>
   );
 }
@@ -418,7 +462,7 @@ const styles = StyleSheet.create({
     padding: 5,
   },
   paradasList: {
-    padding: 15,
+    marginTop: 16,
   },
   paradaItem: {
     backgroundColor: colors.white,
@@ -450,12 +494,6 @@ const styles = StyleSheet.create({
   tableRowExpanded: {
     backgroundColor: colors.background,
     borderBottomWidth: 0,
-  },
-  expandedContent: {
-    backgroundColor: colors.background,
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
   },
   totalRow: {
     flexDirection: 'row',
@@ -500,5 +538,39 @@ const styles = StyleSheet.create({
   emptyText: {
     color: colors.textLight,
     fontSize: 16,
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    padding: 16,
+    gap: 8,
+  },
+  statsCard: {
+    flex: 1,
+    backgroundColor: colors.white,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  statsValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: colors.text,
+    marginVertical: 8,
+  },
+  statsLabel: {
+    fontSize: 12,
+    color: colors.textLight,
+    textAlign: 'center',
+  },
+  expandedContent: {
+    backgroundColor: colors.background,
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
 }); 

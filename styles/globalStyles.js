@@ -10,7 +10,17 @@ export const colors = {
   white: '#FFFFFF',
   text: '#333333',
   textLight: '#666666',
-  border: '#E0E0E0'
+  border: '#E0E0E0',
+  chartColors: [
+    '#FF6384',
+    '#36A2EB',
+    '#FFCE56',
+    '#4BC0C0',
+    '#9966FF',
+    '#FF9F40',
+    '#FF6384',
+    '#36A2EB'
+  ]
 };
 
 export const globalStyles = StyleSheet.create({
