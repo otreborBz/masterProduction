@@ -15,7 +15,13 @@ const Stack = createNativeStackNavigator();
 
 // Configuração do Firebase
 const firebaseConfig = {
-  // colocar as configuracoes do firebase
+  apiKey: "AIzaSyASES_8k2Grx0Zo3za5Z0mJuZxoEkSAKio",
+  authDomain: "production-f18dd.firebaseapp.com",
+  projectId: "production-f18dd",
+  storageBucket: "production-f18dd.firebasestorage.app",
+  messagingSenderId: "953263823099",
+  appId: "1:953263823099:web:a1beb9e56f7e2aedd4385e",
+  measurementId: "G-YXRCWH0LVR"
 };
 
 // Inicializar Firebase
@@ -29,6 +35,24 @@ const auth = initializeAuth(app, {
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState(null);
+
+  // Função auxiliar para ordenar as horas considerando o turno
+  const compareHours = (timeA, timeB) => {
+    // Converte as strings de hora para minutos desde o início do dia
+    const getMinutes = (timeStr) => {
+      const [hours, minutes] = timeStr.split(':').map(Number);
+      return hours * 60 + minutes;
+    };
+
+    const minutesA = getMinutes(timeA);
+    const minutesB = getMinutes(timeB);
+
+    // Considera o período de 00:00 até 01:23 como sendo depois das 16:03
+    const adjustedMinutesA = minutesA <= 83 ? minutesA + 24 * 60 : minutesA;
+    const adjustedMinutesB = minutesB <= 83 ? minutesB + 24 * 60 : minutesB;
+
+    return adjustedMinutesA - adjustedMinutesB;
+  };
 
   useEffect(() => {
     // Listener para mudanças no estado de autenticação

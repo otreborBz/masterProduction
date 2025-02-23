@@ -129,14 +129,10 @@ export default function ProductionDataScreen({ navigation }) {
   useEffect(() => {
     const productionRef = collection(db, 'producao_hora');
     
-    // Simplificar a query para evitar necessidade de índice composto
     let q;
-    
     if (selectedTurno !== 'Todos') {
-      // Apenas filtrar por turno, sem ordenação
       q = query(productionRef, where('turno', '==', selectedTurno));
     } else {
-      // Apenas ordenar por data quando mostrar todos
       q = query(productionRef, orderBy('data', 'desc'));
     }
 
@@ -174,9 +170,33 @@ export default function ProductionDataScreen({ navigation }) {
           }
         });
 
-        // Ordenar os registros por data após recebê-los
+        // Ordenar os registros considerando o horário especial
         Object.values(groupedData).forEach(linha => {
-          linha.registros.sort((a, b) => b.data - a.data);
+          linha.registros.sort((a, b) => {
+            const getAdjustedTime = (date) => {
+              // Verificar se a data é válida
+              if (!date || !(date instanceof Date)) {
+                console.warn('Data inválida:', date);
+                return 0; // Retorna 0 para datas inválidas
+              }
+
+              const hours = date.getHours();
+              const minutes = date.getMinutes();
+              const totalMinutes = hours * 60 + minutes;
+              
+              // Se o horário estiver entre 00:00 e 01:23, adiciona 24 horas
+              return totalMinutes <= 83 ? totalMinutes + (24 * 60) : totalMinutes;
+            };
+
+            // Garantir que as datas são objetos Date válidos
+            const dateA = a.data instanceof Date ? a.data : new Date(a.data);
+            const dateB = b.data instanceof Date ? b.data : new Date(b.data);
+
+            const timeA = getAdjustedTime(dateA);
+            const timeB = getAdjustedTime(dateB);
+            
+            return timeB - timeA;
+          });
         });
 
         // Ordenar as linhas por última atualização

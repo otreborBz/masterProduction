@@ -10,16 +10,52 @@ export default function ProductionDetailScreen({ route, navigation }) {
   const [expandedRow, setExpandedRow] = useState(null);
 
   // Função para converter horário em minutos para comparação
-  const timeToMinutes = (timeString) => {
+  const timeToMinutes = (timeString, turno) => {
     if (!timeString) return 0;
     const [hours, minutes] = timeString.split(':').map(Number);
-    return hours * 60 + minutes;
+    const totalMinutes = hours * 60 + minutes;
+    
+    // Ajuste baseado no turno e seus horários específicos
+    switch(turno) {
+      case 'A': // 23:21 até 06:15
+        if (hours >= 23 || hours < 6 || (hours === 6 && minutes <= 15)) {
+          return hours >= 23 ? totalMinutes - (24 * 60) : totalMinutes;
+        }
+        return totalMinutes;
+      
+      case 'B': // 06:15 até 14:45
+        if (hours >= 6 && (hours < 14 || (hours === 14 && minutes <= 45))) {
+          return totalMinutes;
+        }
+        return totalMinutes + (24 * 60);
+      
+      case 'C': // 14:45 até 23:21
+        if (hours >= 14 && hours < 23 || (hours === 14 && minutes >= 45) || (hours === 23 && minutes <= 21)) {
+          return totalMinutes;
+        }
+        return totalMinutes + (24 * 60);
+
+      case 'X': // 06:15 até 16:03
+        if (hours >= 6 && hours < 16 || (hours === 6 && minutes >= 15) || (hours === 16 && minutes <= 3)) {
+          return totalMinutes;
+        }
+        return totalMinutes + (24 * 60);
+
+      case 'Y': // 16:03 até 01:23
+        if (hours >= 16 || hours < 1 || (hours === 1 && minutes <= 23)) {
+          return hours >= 16 ? totalMinutes : totalMinutes + (24 * 60);
+        }
+        return totalMinutes + (48 * 60);
+      
+      default:
+        return totalMinutes;
+    }
   };
 
-  // Ordenar registros por horário
+  // Ordenar registros por horário e turno
   const sortedRegistros = [...registros].sort((a, b) => {
-    const timeA = timeToMinutes(a.horaInicio);
-    const timeB = timeToMinutes(b.horaInicio);
+    const timeA = timeToMinutes(a.horaInicio, a.turno);
+    const timeB = timeToMinutes(b.horaInicio, b.turno);
     return timeA - timeB;
   });
 
