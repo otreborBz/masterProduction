@@ -1,9 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal, Platform, Alert, Dimensions } from 'react-native';
 import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import { globalStyles, colors } from '../styles/globalStyles';
 import { PieChart, BarChart, LineChart } from 'react-native-chart-kit';
+import ViewShot from "react-native-view-shot";
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -572,6 +575,165 @@ export default function ProductionDetailScreen({ route, navigation }) {
     );
   };
 
+  // Adicione a ref para o ViewShot
+  const viewShotRef = useRef();
+
+  // Ajuste a função generatePDF
+  const generatePDF = async () => {
+    try {
+      // Prepara os dados para o PDF
+      const tableRows = sortedRegistros.map(registro => {
+        const paradasCount = registro.paradas?.length || 0;
+        const paradasList = registro.paradas?.map(parada => 
+          `- ${parada.codigo}: ${parada.descricao} (${parada.minutosPerdidos}min)${parada.observacao ? `\nObs: ${parada.observacao}` : ''}`
+        ).join('\n') || '';
+
+        return `
+          <tr>
+            <td>${formatTime(registro.horaInicio)} - ${formatTime(registro.horaFim)}</td>
+            <td>${registro.meta}</td>
+            <td style="color: ${Number(registro.realProduzido) >= Number(registro.meta) ? '#28a745' : '#ffc107'}">${registro.realProduzido}</td>
+            <td>${paradasCount}</td>
+          </tr>
+          ${paradasList ? `
+          <tr>
+            <td colspan="4" style="font-size: 12px; color: #666; padding-left: 20px">
+              ${paradasList}
+            </td>
+          </tr>
+          ` : ''}
+        `;
+      }).join('');
+
+      const html = `
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <style>
+              body { 
+                font-family: Arial, sans-serif; 
+                margin: 20px;
+                padding: 0;
+              }
+              .header { 
+                text-align: center; 
+                margin-bottom: 30px;
+                padding: 20px;
+                background-color: #f5f5f5;
+                border-radius: 8px;
+              }
+              .title { 
+                font-size: 24px; 
+                color: #333;
+                margin-bottom: 10px;
+              }
+              .date { 
+                font-size: 18px; 
+                color: #666;
+              }
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 20px;
+              }
+              th {
+                background-color: #4a90e2;
+                color: white;
+                padding: 10px;
+                text-align: left;
+              }
+              td {
+                padding: 8px;
+                border-bottom: 1px solid #ddd;
+              }
+              .stats {
+                display: flex;
+                justify-content: space-between;
+                margin: 20px 0;
+                padding: 15px;
+                background-color: #f8f9fa;
+                border-radius: 8px;
+              }
+              .stat-item {
+                text-align: center;
+              }
+              .stat-value {
+                font-size: 18px;
+                font-weight: bold;
+                color: #333;
+              }
+              .stat-label {
+                font-size: 14px;
+                color: #666;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <div class="title">Relatório de Produção - Linha ${linha}</div>
+              <div class="date">Data: ${formatDate(selectedDate)}</div>
+            </div>
+
+            <div class="stats">
+              <div class="stat-item">
+                <div class="stat-value">${statistics?.total || 0}</div>
+                <div class="stat-label">Produção Total</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-value">${statistics?.eficiencia}%</div>
+                <div class="stat-label">Eficiência Real</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-value">${statistics?.tempoParadasNaoProgramadas}min</div>
+                <div class="stat-label">Tempo Total Paradas</div>
+              </div>
+            </div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>Horário</th>
+                  <th>Meta</th>
+                  <th>Produção</th>
+                  <th>Paradas</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableRows}
+                <tr style="background-color: #f8f9fa; font-weight: bold;">
+                  <td>Total</td>
+                  <td>${totals.totalMeta}</td>
+                  <td style="color: ${totals.totalProducao >= totals.totalMeta ? '#28a745' : '#ffc107'}">${totals.totalProducao}</td>
+                  <td>${totals.totalParadas}</td>
+                </tr>
+              </tbody>
+            </table>
+          </body>
+        </html>
+      `;
+
+      // Gera o PDF
+      const { uri } = await Print.printToFileAsync({
+        html,
+        base64: false,
+        width: 612,
+        height: 792,
+        padding: { top: 40, bottom: 40, left: 40, right: 40 }
+      });
+
+      // Compartilha o PDF
+      await Sharing.shareAsync(uri, {
+        mimeType: 'application/pdf',
+        dialogTitle: 'Compartilhar PDF',
+        UTI: 'com.adobe.pdf'
+      });
+
+    } catch (error) {
+      console.error('Erro ao gerar PDF:', error);
+      Alert.alert('Erro', 'Não foi possível gerar o PDF: ' + error.message);
+    }
+  };
+
   return (
     <View style={globalStyles.container}>
       <View style={styles.header}>
@@ -582,41 +744,59 @@ export default function ProductionDetailScreen({ route, navigation }) {
           <MaterialIcons name="arrow-back" size={24} color={colors.primary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Linha {linha}</Text>
-        <View style={styles.headerSpace} />
+        <TouchableOpacity 
+          style={styles.exportButton}
+          onPress={generatePDF}
+        >
+          <MaterialIcons name="picture-as-pdf" size={24} color={colors.primary} />
+        </TouchableOpacity>
       </View>
 
       <DateSelector />
 
       <ScrollView>
-        {statistics && (
-          <>
-            <StatisticsCards />
-            <ParetoChart 
-              statistics={statistics} 
-              sortedRegistros={sortedRegistros} 
-            />
-          </>
-        )}
-
-        <View style={styles.tableContainer}>
-          <TableHeader />
-          {sortedRegistros.length > 0 ? (
-            <>
-              {sortedRegistros.map((registro, index) => (
-                <TableRow 
-                  key={index} 
-                  registro={registro} 
-                  index={index}
+        <ViewShot 
+          ref={viewShotRef} 
+          options={{ 
+            format: "jpg",
+            quality: 1,
+            result: "base64",
+            width: screenWidth - 32,
+            height: 2000
+          }}
+        >
+          <View style={[styles.pdfContent, { backgroundColor: '#ffffff' }]}>
+            {statistics && (
+              <>
+                <StatisticsCards />
+                <ParetoChart 
+                  statistics={statistics} 
+                  sortedRegistros={sortedRegistros} 
                 />
-              ))}
-              <TotalRow />
-            </>
-          ) : (
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>Nenhum registro encontrado para esta data</Text>
+              </>
+            )}
+
+            <View style={styles.tableContainer}>
+              <TableHeader />
+              {sortedRegistros.length > 0 ? (
+                <>
+                  {sortedRegistros.map((registro, index) => (
+                    <TableRow 
+                      key={index} 
+                      registro={registro} 
+                      index={index}
+                    />
+                  ))}
+                  <TotalRow />
+                </>
+              ) : (
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyText}>Nenhum registro encontrado para esta data</Text>
+                </View>
+              )}
             </View>
-          )}
-        </View>
+          </View>
+        </ViewShot>
       </ScrollView>
     </View>
   );
@@ -641,6 +821,10 @@ const styles = StyleSheet.create({
   backButton: {
     padding: 12,
     marginLeft: 8,
+  },
+  exportButton: {
+    padding: 12,
+    marginRight: 8,
   },
   headerSpace: {
     width: 48,
@@ -933,5 +1117,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 8,
     marginTop: 8,
+  },
+  pdfContent: {
+    padding: 16,
   },
 }); 
