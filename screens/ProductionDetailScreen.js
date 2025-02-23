@@ -3,8 +3,24 @@ import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal, Platform, 
 import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import { globalStyles, colors } from '../styles/globalStyles';
+import { PieChart, BarChart, LineChart } from 'react-native-chart-kit';
 
 const screenWidth = Dimensions.get('window').width;
+
+const chartColors = {
+  colors: [
+    '#FF6B6B',  // Vermelho
+    '#4ECDC4',  // Verde água
+    '#45B7D1',  // Azul claro
+    '#FFD93D',  // Amarelo
+    '#6C5B7B',  // Roxo
+    '#F18F01',  // Laranja
+    '#2E86AB',  // Azul escuro
+    '#95D47A',  // Verde claro
+    '#FF9F89',  // Salmão
+    '#7B6CF6'   // Roxo claro
+  ]
+};
 
 export default function ProductionDetailScreen({ route, navigation }) {
   const { linha, registros } = route.params;
@@ -161,6 +177,9 @@ export default function ProductionDetailScreen({ route, navigation }) {
                   <Text style={styles.paradaTempo}>{parada.minutosPerdidos} min</Text>
                 </View>
                 <Text style={styles.paradaDescricao}>{parada.descricao}</Text>
+                {parada.observacao && (
+                  <Text style={styles.paradaObservacao}>Obs: {parada.observacao}</Text>
+                )}
               </View>
             ))}
           </View>
@@ -236,33 +255,60 @@ export default function ProductionDetailScreen({ route, navigation }) {
   const statistics = useMemo(() => {
     if (!sortedRegistros.length) return null;
 
+    // Calcular total produzido e meta total
     const total = sortedRegistros.reduce((acc, reg) => acc + Number(reg.realProduzido), 0);
-    const meta = sortedRegistros.reduce((acc, reg) => acc + Number(reg.meta), 0);
-    const mediaProducao = total / sortedRegistros.length;
-    const eficiencia = (total / meta) * 100;
+    const metaTotal = sortedRegistros.reduce((acc, reg) => acc + Number(reg.meta), 0);
+
+    // Primeiro, vamos identificar todas as paradas programadas
+    let tempoParadasProgramadas = 0;
+    let tempoParadasNaoProgramadas = 0;
+
+    // Calcular tempo de paradas separadamente
+    sortedRegistros.forEach(registro => {
+      if (registro.paradas) {
+        registro.paradas.forEach(parada => {
+          // Verificar se é parada programada pela categoria
+          if (parada.categoria === "parada programada") {
+            tempoParadasProgramadas += Number(parada.minutosPerdidos);
+          } else {
+            tempoParadasNaoProgramadas += Number(parada.minutosPerdidos);
+          }
+        });
+      }
+    });
+
+    // Tempo total do turno em minutos
+    const tempoTotal = sortedRegistros.length * 60;
     
-    // Agrupar paradas por tipo
-    const paradasPorTipo = sortedRegistros.reduce((acc, reg) => {
-      reg.paradas?.forEach(parada => {
-        if (!acc[parada.codigo]) {
-          acc[parada.codigo] = {
-            count: 0,
-            minutos: 0,
-            descricao: parada.descricao
-          };
-        }
-        acc[parada.codigo].count++;
-        acc[parada.codigo].minutos += Number(parada.minutosPerdidos);
-      });
-      return acc;
-    }, {});
+    // Tempo disponível real (descontando paradas programadas)
+    const tempoDisponivel = tempoTotal - tempoParadasProgramadas;
+    
+    // Ajustar a meta considerando o tempo disponível
+    const metaAjustada = Math.round((metaTotal * tempoDisponivel) / tempoTotal);
+    
+    // Calcular eficiência real
+    const eficiencia = (total / metaAjustada) * 100;
+
+    console.log('Cálculo de Eficiência:', {
+      total,
+      metaTotal,
+      metaAjustada,
+      tempoTotal,
+      tempoDisponivel,
+      tempoParadasProgramadas,
+      tempoParadasNaoProgramadas,
+      eficiencia
+    });
 
     return {
       total,
-      meta,
-      mediaProducao,
-      eficiencia,
-      paradasPorTipo
+      metaOriginal: metaTotal,
+      metaAjustada,
+      eficiencia: eficiencia.toFixed(1),
+      tempoTotal,
+      tempoDisponivel,
+      tempoParadasProgramadas,
+      tempoParadasNaoProgramadas
     };
   }, [sortedRegistros]);
 
@@ -305,19 +351,226 @@ export default function ProductionDetailScreen({ route, navigation }) {
 
       <View style={styles.statsCard}>
         <FontAwesome5 name="percentage" size={24} color={colors.success} />
-        <Text style={styles.statsValue}>{statistics?.eficiencia.toFixed(1)}%</Text>
-        <Text style={styles.statsLabel}>Eficiência</Text>
+        <Text style={styles.statsValue}>{statistics?.eficiencia}%</Text>
+        <Text style={styles.statsLabel}>Eficiência Real</Text>
       </View>
 
       <View style={styles.statsCard}>
         <MaterialIcons name="warning" size={24} color={colors.warning} />
-        <Text style={styles.statsValue}>
-          {Object.values(statistics?.paradasPorTipo || {}).reduce((acc, curr) => acc + curr.minutos, 0)}min
-        </Text>
-        <Text style={styles.statsLabel}>Tempo Parado</Text>
+        <Text style={styles.statsValue}>{statistics?.tempoParadasNaoProgramadas}min</Text>
+        <Text style={styles.statsLabel}>Tempo Total Paradas</Text>
       </View>
     </View>
   );
+
+  const ParetoChart = ({ statistics, sortedRegistros }) => {
+    const [selectedLevel, setSelectedLevel] = useState(1);
+    const [selectedCategory, setSelectedCategory] = useState(null);
+    const [selectedSubcategory, setSelectedSubcategory] = useState(null);
+    const [showDetails, setShowDetails] = useState(false);
+    
+    const paretoData = useMemo(() => {
+      const data = sortedRegistros.reduce((acc, registro) => {
+        registro.paradas?.forEach(parada => {
+          let key;
+          if (selectedLevel === 1) {
+            key = parada.categoria.split(' ')[0];
+          } else if (selectedLevel === 2 && parada.categoria.startsWith(selectedCategory)) {
+            key = `${parada.codigo} - ${parada.descricao}`;
+          } else if (selectedLevel === 3 && 
+                    parada.categoria.startsWith(selectedCategory) && 
+                    `${parada.codigo} - ${parada.descricao}` === selectedSubcategory) {
+            key = parada.observacao || "Sem observação";
+          } else {
+            return;
+          }
+
+          if (!acc[key]) {
+            acc[key] = {
+              minutes: 0,
+              count: 0
+            };
+          }
+          acc[key].minutes += Number(parada.minutosPerdidos);
+          acc[key].count++;
+        });
+        return acc;
+      }, {});
+
+      const sortedData = Object.entries(data)
+        .map(([name, values]) => ({
+          name,
+          minutes: values.minutes,
+          count: values.count
+        }))
+        .sort((a, b) => b.minutes - a.minutes);
+
+      const total = sortedData.reduce((sum, item) => sum + item.minutes, 0);
+      let accumulated = 0;
+
+      return sortedData.map(item => {
+        accumulated += item.minutes;
+        return {
+          ...item,
+          percentage: (item.minutes / total) * 100,
+          accumulated: (accumulated / total) * 100
+        };
+      });
+    }, [sortedRegistros, selectedLevel, selectedCategory, selectedSubcategory]);
+
+    const getBreadcrumb = () => {
+      const items = ['Categorias'];
+      if (selectedCategory) items.push(selectedCategory);
+      if (selectedSubcategory) items.push(selectedSubcategory.split(' - ')[1]);
+      return items;
+    };
+
+    const chartData = {
+      labels: paretoData.map(item => item.name),
+      datasets: [
+        {
+          data: paretoData.map(item => item.minutes),
+          colors: paretoData.map((_, index) => {
+            // Retorna uma função que retorna a cor específica para cada barra
+            return () => chartColors.colors[index % chartColors.colors.length];
+          })
+        },
+        {
+          data: paretoData.map(item => item.accumulated),
+          color: () => chartColors.colors[0],
+          strokeWidth: 2
+        }
+      ],
+      legend: ['Tempo (min)', 'Acumulado (%)']
+    };
+
+    return (
+      <View style={styles.paretoContainer}>
+        <View style={styles.navigationHeader}>
+          {selectedLevel > 1 && (
+            <TouchableOpacity 
+              style={styles.backButton}
+              onPress={() => {
+                if (selectedLevel === 3) {
+                  setSelectedLevel(2);
+                  setSelectedSubcategory(null);
+                } else if (selectedLevel === 2) {
+                  setSelectedLevel(1);
+                  setSelectedCategory(null);
+                }
+              }}
+            >
+              <MaterialIcons name="arrow-back" size={20} color={colors.text} />
+            </TouchableOpacity>
+          )}
+          <Text style={styles.currentLevel}>
+            {selectedLevel === 1 ? 'Análise de Paradas' : 
+             selectedLevel === 2 ? selectedCategory :
+             selectedSubcategory?.split(' - ')[1]}
+          </Text>
+        </View>
+
+        <View style={styles.chartContainer}>
+          <BarChart
+            data={{
+              labels: paretoData.map(item => item.name),
+              datasets: [{
+                data: paretoData.map(item => item.minutes),
+                colors: paretoData.map((_, index) => () => chartColors.colors[index % chartColors.colors.length])
+              }]
+            }}
+            width={screenWidth - 60}
+            height={220}
+            chartConfig={{
+              backgroundColor: '#ffffff',
+              backgroundGradientFrom: '#ffffff',
+              backgroundGradientTo: '#ffffff',
+              decimalPlaces: 0,
+              color: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+              labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+              barPercentage: 0.7,
+              propsForVerticalLabels: {
+                rotation: 45,
+                fontSize: 10,
+                width: 200,
+              }
+            }}
+            style={{
+              borderRadius: 8,
+              paddingRight: 0,
+              paddingLeft: 0,
+              paddingBottom: 0,
+            }}
+            showValuesOnTopOfBars={true}
+            withInnerLines={false}
+            fromZero={true}
+            yAxisLabel=""
+            yAxisSuffix="min"
+          />
+        </View>
+
+        {showDetails && (
+          <ScrollView 
+            style={styles.detailList}
+            horizontal={false}
+            showsVerticalScrollIndicator={true}
+          >
+            <View style={styles.detailTable}>
+              {paretoData.map((item, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={styles.detailItem}
+                  onPress={() => {
+                    if (selectedLevel === 1) {
+                      setSelectedCategory(item.name);
+                      setSelectedLevel(2);
+                    } else if (selectedLevel === 2) {
+                      setSelectedSubcategory(item.name);
+                      setSelectedLevel(3);
+                    }
+                  }}
+                >
+                  <View style={styles.detailContent}>
+                    <View style={styles.detailNameContainer}>
+                      <Text style={styles.detailName} numberOfLines={2}>
+                        {item.name}
+                      </Text>
+                    </View>
+                    <View style={styles.detailValues}>
+                      <Text style={styles.detailMinutes}>{item.minutes}min</Text>
+                      <Text style={styles.detailPercentage}>{item.percentage.toFixed(1)}%</Text>
+                    </View>
+                  </View>
+                  <View style={styles.progressBar}>
+                    <View 
+                      style={[
+                        styles.progressFill,
+                        { 
+                          width: `${item.percentage}%`,
+                          backgroundColor: chartColors.colors[index % chartColors.colors.length]
+                        }
+                      ]} 
+                    />
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+        )}
+
+        <TouchableOpacity 
+          style={styles.toggleButton}
+          onPress={() => setShowDetails(!showDetails)}
+        >
+          <MaterialIcons 
+            name={showDetails ? "expand-less" : "expand-more"} 
+            size={24} 
+            color={colors.text} 
+          />
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   return (
     <View style={globalStyles.container}>
@@ -336,7 +589,13 @@ export default function ProductionDetailScreen({ route, navigation }) {
 
       <ScrollView>
         {statistics && (
-          <StatisticsCards />
+          <>
+            <StatisticsCards />
+            <ParetoChart 
+              statistics={statistics} 
+              sortedRegistros={sortedRegistros} 
+            />
+          </>
         )}
 
         <View style={styles.tableContainer}>
@@ -572,5 +831,107 @@ const styles = StyleSheet.create({
     padding: 15,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+  },
+  paradaObservacao: {
+    color: colors.textLight,
+    fontSize: 13,
+    marginTop: 4,
+    fontStyle: 'italic'
+  },
+  graphicsContainer: {
+    padding: 16,
+  },
+  graphicCard: {
+    backgroundColor: colors.white,
+    padding: 16,
+    borderRadius: 12,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  graphicTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.text,
+    marginBottom: 8,
+    flex: 1,
+    paddingRight: 8,
+  },
+  paretoContainer: {
+    backgroundColor: colors.white,
+    margin: 16,
+    borderRadius: 8,
+    padding: 16,
+  },
+  navigationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  currentLevel: {
+    flex: 1,
+    fontSize: 16,
+    color: colors.text,
+    textAlign: 'center',
+  },
+  chartContainer: {
+    marginBottom: 16,
+  },
+  detailList: {
+    marginTop: 16,
+    maxHeight: 300, // Altura máxima para a lista
+  },
+  detailTable: {
+    width: '100%',
+  },
+  detailItem: {
+    marginBottom: 12,
+    paddingHorizontal: 8,
+  },
+  detailContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  detailNameContainer: {
+    flex: 1,
+    marginRight: 16,
+  },
+  detailName: {
+    fontSize: 14,
+    color: colors.text,
+    flexWrap: 'wrap',
+  },
+  detailValues: {
+    alignItems: 'flex-end',
+    minWidth: 80, // Largura mínima para os valores
+  },
+  detailMinutes: {
+    fontSize: 14,
+    color: colors.text,
+    fontWeight: '500',
+  },
+  detailPercentage: {
+    fontSize: 12,
+    color: colors.textLight,
+    marginTop: 2,
+  },
+  progressBar: {
+    height: 4,
+    backgroundColor: colors.border,
+    borderRadius: 2,
+    marginTop: 4,
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  toggleButton: {
+    alignItems: 'center',
+    padding: 8,
+    marginTop: 8,
   },
 }); 
