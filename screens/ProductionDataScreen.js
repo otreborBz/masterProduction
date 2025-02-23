@@ -4,6 +4,7 @@ import { getFirestore, collection, query, orderBy, onSnapshot, where, deleteDoc,
 import { getAuth } from 'firebase/auth';
 import { globalStyles, colors } from '../styles/globalStyles';
 import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
+import DateTimePickerModal from 'react-native-modal-datetime-picker';
 
 const LINHAS = ['A', 'B', 'C', 'G', 'H', 'J', 'K', 'L', 'M', 'N', 'VR'];
 const TURNOS = ['A', 'B', 'C', 'X', 'Y', 'Todos'];
@@ -16,8 +17,21 @@ export default function ProductionDataScreen({ navigation }) {
   const [userName, setUserName] = useState('');
   const [passwordModalVisible, setPasswordModalVisible] = useState(false);
   const [password, setPassword] = useState('');
+  const [selectedDeleteDate, setSelectedDeleteDate] = useState(new Date());
+  const [deleteMode, setDeleteMode] = useState('all'); // 'all' ou 'date'
+  const [isDeleteDatePickerVisible, setDeleteDatePickerVisible] = useState(false);
+  const [showDeleteOptions, setShowDeleteOptions] = useState(false);
   const db = getFirestore();
   const auth = getAuth();
+
+  const formatDate = (date) => {
+    if (!date) return '';
+    return date.toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+  };
 
   const handleLogout = async () => {
     try {
@@ -33,45 +47,69 @@ export default function ProductionDataScreen({ navigation }) {
 
   const handlePasswordSubmit = () => {
     if (password === 'master') {
-      setPasswordModalVisible(false);
       setPassword('');
-      Alert.alert(
-        'Confirmação Final',
-        'Isso irá remover TODOS os dados do sistema. Esta ação não pode ser desfeita.',
-        [
-          {
-            text: 'Cancelar',
-            style: 'cancel'
-          },
-          {
-            text: 'Confirmar',
-            style: 'destructive',
-            onPress: async () => {
-              try {
-                const querySnapshot = await getDocs(collection(db, 'producao_hora'));
-                let deletedCount = 0;
-
-                for (const doc of querySnapshot.docs) {
-                  await deleteDoc(doc.ref);
-                  deletedCount++;
-                }
-
-                Alert.alert(
-                  'Sucesso',
-                  `${deletedCount} registros foram removidos.`
-                );
-              } catch (error) {
-                console.error('Erro ao limpar dados:', error);
-                Alert.alert('Erro', 'Não foi possível limpar os dados.');
-              }
-            }
-          }
-        ]
-      );
+      setShowDeleteOptions(true);
     } else {
       Alert.alert('Erro', 'Senha incorreta!');
       setPassword('');
     }
+  };
+
+  const handleDeleteModeChange = (mode) => {
+    setDeleteMode(mode);
+    if (mode === 'date') {
+      // Define a data para ontem
+      const ontem = new Date();
+      ontem.setDate(ontem.getDate() - 1);
+      ontem.setHours(23, 59, 59, 999); // Define para último momento do dia
+      setSelectedDeleteDate(ontem);
+    }
+  };
+
+  const handleDeleteConfirm = () => {
+    setPasswordModalVisible(false);
+    setShowDeleteOptions(false);
+    
+    Alert.alert(
+      'Confirmação Final',
+      deleteMode === 'all' 
+        ? 'Isso irá remover TODOS os dados do sistema. Esta ação não pode ser desfeita.'
+        : `Isso irá remover todos os dados até ${formatDate(selectedDeleteDate)}. Esta ação não pode ser desfeita.`,
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel'
+        },
+        {
+          text: 'Confirmar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const querySnapshot = await getDocs(collection(db, 'producao_hora'));
+              let deletedCount = 0;
+
+              for (const doc of querySnapshot.docs) {
+                const data = doc.data();
+                const docDate = data.data?.toDate?.() || new Date(data.data);
+
+                if (deleteMode === 'all' || (deleteMode === 'date' && docDate <= selectedDeleteDate)) {
+                  await deleteDoc(doc.ref);
+                  deletedCount++;
+                }
+              }
+
+              Alert.alert(
+                'Sucesso',
+                `${deletedCount} registros foram removidos.`
+              );
+            } catch (error) {
+              console.error('Erro ao limpar dados:', error);
+              Alert.alert('Erro', 'Não foi possível limpar os dados.');
+            }
+          }
+        }
+      ]
+    );
   };
 
   useEffect(() => {
@@ -221,36 +259,25 @@ export default function ProductionDataScreen({ navigation }) {
 
   // Componente para seleção de turno
   const TurnoSelector = () => (
-    <ScrollView 
-      horizontal 
-      showsHorizontalScrollIndicator={false}
-      style={styles.turnoScrollView}
-    >
-      <View style={styles.turnoContainer}>
-        {TURNOS.map((turno) => (
-          <TouchableOpacity
-            key={turno}
-            style={[
-              styles.turnoButton,
-              selectedTurno === turno && styles.turnoButtonSelected
-            ]}
-            onPress={() => setSelectedTurno(turno)}
-          >
-            <MaterialIcons 
-              name={turno === 'Todos' ? 'view-carousel' : 'access-time'} 
-              size={20} 
-              color={selectedTurno === turno ? colors.white : colors.primary}
-            />
-            <Text style={[
-              styles.turnoText,
-              selectedTurno === turno && styles.turnoTextSelected
-            ]}>
-              Turno {turno}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-    </ScrollView>
+    <View style={styles.turnoContainer}>
+      {TURNOS.map((turno) => (
+        <TouchableOpacity
+          key={turno}
+          style={[
+            styles.turnoButton,
+            selectedTurno === turno && styles.turnoButtonSelected
+          ]}
+          onPress={() => setSelectedTurno(turno)}
+        >
+          <Text style={[
+            styles.turnoText,
+            selectedTurno === turno && styles.turnoTextSelected
+          ]}>
+            {turno}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
   );
 
   return (
@@ -311,35 +338,111 @@ export default function ProductionDataScreen({ navigation }) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Verificação de Segurança</Text>
-            <Text style={styles.modalSubtitle}>Digite a senha para confirmar a exclusão:</Text>
             
-            <TextInput
-              style={styles.passwordInput}
-              value={password}
-              onChangeText={setPassword}
-              placeholder="Digite a senha"
-              secureTextEntry
-              autoCapitalize="none"
+            {!showDeleteOptions ? (
+              <>
+                <Text style={styles.modalSubtitle}>Digite a senha para continuar:</Text>
+                <TextInput
+                  style={styles.passwordInput}
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="Digite a senha"
+                  secureTextEntry
+                  autoCapitalize="none"
+                />
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity 
+                    style={[styles.modalButton, styles.cancelButton]}
+                    onPress={() => {
+                      setPasswordModalVisible(false);
+                      setPassword('');
+                    }}
+                  >
+                    <Text style={styles.cancelButtonText}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.modalButton, styles.confirmButton]}
+                    onPress={handlePasswordSubmit}
+                  >
+                    <Text style={styles.confirmButtonText}>Confirmar</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={styles.modalSubtitle}>Selecione o tipo de limpeza:</Text>
+                <View style={styles.deleteOptions}>
+                  <TouchableOpacity 
+                    style={[
+                      styles.deleteOption,
+                      deleteMode === 'all' && styles.deleteOptionSelected
+                    ]}
+                    onPress={() => handleDeleteModeChange('all')}
+                  >
+                    <Text style={[
+                      styles.deleteOptionText,
+                      deleteMode === 'all' && styles.deleteOptionTextSelected
+                    ]}>
+                      Deletar Tudo
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[
+                      styles.deleteOption,
+                      deleteMode === 'date' && styles.deleteOptionSelected
+                    ]}
+                    onPress={() => handleDeleteModeChange('date')}
+                  >
+                    <Text style={[
+                      styles.deleteOptionText,
+                      deleteMode === 'date' && styles.deleteOptionTextSelected
+                    ]}>
+                      Por Data
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {deleteMode === 'date' && (
+                  <TouchableOpacity 
+                    style={styles.dateSelector}
+                    onPress={() => setDeleteDatePickerVisible(true)}
+                  >
+                    <Text>Deletar até: {formatDate(selectedDeleteDate)}</Text>
+                    <MaterialIcons name="calendar-today" size={20} color={colors.primary} />
+                  </TouchableOpacity>
+                )}
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity 
+                    style={[styles.modalButton, styles.cancelButton]}
+                    onPress={() => {
+                      setPasswordModalVisible(false);
+                      setShowDeleteOptions(false);
+                      setDeleteMode('all');
+                    }}
+                  >
+                    <Text style={styles.cancelButtonText}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.modalButton, styles.confirmButton]}
+                    onPress={handleDeleteConfirm}
+                  >
+                    <Text style={styles.confirmButtonText}>Confirmar</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+
+            <DateTimePickerModal
+              isVisible={isDeleteDatePickerVisible}
+              mode="date"
+              onConfirm={(date) => {
+                setSelectedDeleteDate(date);
+                setDeleteDatePickerVisible(false);
+              }}
+              onCancel={() => setDeleteDatePickerVisible(false)}
+              date={selectedDeleteDate}
             />
-
-            <View style={styles.modalButtons}>
-              <TouchableOpacity 
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => {
-                  setPasswordModalVisible(false);
-                  setPassword('');
-                }}
-              >
-                <Text style={styles.cancelButtonText}>Cancelar</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={[styles.modalButton, styles.confirmButton]}
-                onPress={handlePasswordSubmit}
-              >
-                <Text style={styles.confirmButtonText}>Confirmar</Text>
-              </TouchableOpacity>
-            </View>
           </View>
         </View>
       </Modal>
@@ -471,52 +574,34 @@ const styles = StyleSheet.create({
   icon: {
     marginBottom: 5,
   },
-  turnoScrollView: {
-    backgroundColor: colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    height: 75,
-    paddingVertical: 8,
-  },
   turnoContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 10,
-    paddingBottom: 4,
-    gap: 12,
+    backgroundColor: colors.white,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    gap: 10,
   },
   turnoButton: {
-    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: colors.background,
+    minWidth: 40,
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    gap: 6,
-    height: 40,
-    backgroundColor: colors.white,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
   },
   turnoButtonSelected: {
     backgroundColor: colors.primary,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
   },
   turnoText: {
-    color: colors.primary,
-    fontSize: 14,
+    fontSize: 13,
+    color: colors.textLight,
     fontWeight: '500',
   },
   turnoTextSelected: {
     color: colors.white,
-    fontWeight: 'bold',
+    fontWeight: '600',
   },
   emptyCard: {
     opacity: 0.7,
@@ -617,5 +702,50 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 14,
     fontWeight: '500',
+  },
+  deleteOptions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+    gap: 12,
+  },
+  deleteOption: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.danger,
+    backgroundColor: colors.white,
+  },
+  deleteOptionSelected: {
+    backgroundColor: colors.danger,
+    borderColor: colors.danger,
+  },
+  deleteOptionText: {
+    color: colors.danger,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  deleteOptionTextSelected: {
+    color: colors.white,
+    fontWeight: 'bold',
+  },
+  dateSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: colors.background,
+    marginBottom: 20,
+  },
+  dateSelectorText: {
+    fontSize: 14,
+    color: colors.text,
+  },
+  selectedText: {
+    fontWeight: 'bold',
   },
 }); 
