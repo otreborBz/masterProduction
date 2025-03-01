@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef } from 'react';
-import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal, Platform, Alert, Dimensions } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, TouchableOpacity, Modal, Platform, Alert, Dimensions, ActivityIndicator } from 'react-native';
 import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import { globalStyles, colors } from '../styles/globalStyles';
@@ -26,12 +26,31 @@ const chartColors = {
 };
 
 export default function ProductionDetailScreen({ route, navigation }) {
-  const { linha, registros } = route.params;
+  const { linha, registros: initialRegistros, fetchProductionData } = route.params;
+  const [registros, setRegistros] = useState(initialRegistros);
   const [selectedRegistro, setSelectedRegistro] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [expandedRow, setExpandedRow] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isDatePickerVisible, setDatePickerVisible] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    try {
+      setIsRefreshing(true);
+      if (fetchProductionData) {
+        const newRegistros = await fetchProductionData(linha);
+        if (newRegistros && newRegistros.length > 0) {
+          setRegistros(newRegistros);
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao atualizar:', error);
+      Alert.alert('Erro', 'Não foi possível atualizar os dados.');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   // Função para converter horário em minutos para comparação
   const timeToMinutes = (timeString, turno) => {
@@ -377,12 +396,13 @@ export default function ProductionDetailScreen({ route, navigation }) {
         registro.paradas?.forEach(parada => {
           let key;
           if (selectedLevel === 1) {
-            key = parada.categoria.split(' ')[0];
-          } else if (selectedLevel === 2 && parada.categoria.startsWith(selectedCategory)) {
-            key = `${parada.codigo} - ${parada.descricao}`;
+            key = parada.categoria ? parada.categoria.split(' ')[0] : 'Sem categoria';
+          } else if (selectedLevel === 2 && parada.categoria && parada.categoria.startsWith(selectedCategory)) {
+            key = `${parada.codigo} - ${parada.descricao || 'Sem descrição'}`;
           } else if (selectedLevel === 3 && 
+                    parada.categoria && 
                     parada.categoria.startsWith(selectedCategory) && 
-                    `${parada.codigo} - ${parada.descricao}` === selectedSubcategory) {
+                    `${parada.codigo} - ${parada.descricao || 'Sem descrição'}` === selectedSubcategory) {
             key = parada.observacao || "Sem observação";
           } else {
             return;
@@ -394,7 +414,7 @@ export default function ProductionDetailScreen({ route, navigation }) {
               count: 0
             };
           }
-          acc[key].minutes += Number(parada.minutosPerdidos);
+          acc[key].minutes += Number(parada.minutosPerdidos) || 0;
           acc[key].count++;
         });
         return acc;
@@ -744,12 +764,29 @@ export default function ProductionDetailScreen({ route, navigation }) {
           <MaterialIcons name="arrow-back" size={24} color={colors.primary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Linha {linha}</Text>
-        <TouchableOpacity 
-          style={styles.exportButton}
-          onPress={generatePDF}
-        >
-          <MaterialIcons name="picture-as-pdf" size={24} color={colors.primary} />
-        </TouchableOpacity>
+        <View style={styles.headerButtons}>
+          <TouchableOpacity 
+            style={styles.refreshButton}
+            onPress={handleRefresh}
+            disabled={isRefreshing}
+          >
+            {isRefreshing ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <MaterialIcons 
+                name="refresh" 
+                size={24} 
+                color={colors.primary} 
+              />
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.exportButton}
+            onPress={generatePDF}
+          >
+            <MaterialIcons name="picture-as-pdf" size={24} color={colors.primary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <DateSelector />
@@ -1120,5 +1157,17 @@ const styles = StyleSheet.create({
   },
   pdfContent: {
     padding: 16,
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  refreshButton: {
+    padding: 12,
+    marginRight: 8,
+    width: 48,
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 }); 
