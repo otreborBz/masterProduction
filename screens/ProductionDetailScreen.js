@@ -26,7 +26,7 @@ const chartColors = {
 };
 
 export default function ProductionDetailScreen({ route, navigation }) {
-  const { linha, registros: initialRegistros, fetchProductionData } = route.params;
+  const { linha, registros: initialRegistros, fetchProductionData, selectedTurno } = route.params;
   const [registros, setRegistros] = useState(initialRegistros);
   const [selectedRegistro, setSelectedRegistro] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
@@ -39,7 +39,7 @@ export default function ProductionDetailScreen({ route, navigation }) {
     try {
       setIsRefreshing(true);
       if (fetchProductionData) {
-        const newRegistros = await fetchProductionData(linha);
+        const newRegistros = await fetchProductionData(linha, selectedTurno);
         if (newRegistros && newRegistros.length > 0) {
           setRegistros(newRegistros);
         }

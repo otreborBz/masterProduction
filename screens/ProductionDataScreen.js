@@ -281,7 +281,8 @@ export default function ProductionDataScreen({ navigation }) {
     navigation.navigate('ProductionDetail', {
       linha,
       registros,
-      fetchProductionData
+      fetchProductionData,
+      selectedTurno
     });
   };
 
