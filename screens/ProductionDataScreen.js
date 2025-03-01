@@ -19,8 +19,9 @@ export default function ProductionDataScreen({ navigation }) {
   const [password, setPassword] = useState('');
   const [selectedDeleteDate, setSelectedDeleteDate] = useState(new Date());
   const [deleteMode, setDeleteMode] = useState('all'); // 'all' ou 'date'
-  const [isDeleteDatePickerVisible, setDeleteDatePickerVisible] = useState(false);
   const [showDeleteOptions, setShowDeleteOptions] = useState(false);
+  const [availableDates, setAvailableDates] = useState([]);
+  const [showDatesList, setShowDatesList] = useState(false);
   const db = getFirestore();
   const auth = getAuth();
 
@@ -55,30 +56,118 @@ export default function ProductionDataScreen({ navigation }) {
     }
   };
 
-  const handleDeleteModeChange = (mode) => {
-    setDeleteMode(mode);
-    if (mode === 'date') {
-      // Define a data para ontem
-      const ontem = new Date();
-      ontem.setDate(ontem.getDate() - 1);
-      ontem.setHours(23, 59, 59, 999); // Define para último momento do dia
-      setSelectedDeleteDate(ontem);
+  const fetchAvailableDates = async () => {
+    try {
+      const productionRef = collection(db, 'producao_hora');
+      const querySnapshot = await getDocs(productionRef);
+      
+      // Criar um Set para evitar datas duplicadas
+      const datesSet = new Set();
+      
+      querySnapshot.docs.forEach(doc => {
+        const data = doc.data().data?.toDate?.() || new Date(doc.data().data);
+        datesSet.add(data.toDateString());
+      });
+
+      // Converter para array e ordenar as datas (mais recente primeiro)
+      const datesArray = Array.from(datesSet)
+        .map(dateString => new Date(dateString))
+        .sort((a, b) => b - a);
+
+      setAvailableDates(datesArray);
+      return datesArray;
+    } catch (error) {
+      console.error('Erro ao buscar datas:', error);
+      Alert.alert('Erro', 'Não foi possível carregar as datas disponíveis.');
+      return [];
     }
   };
 
-  const handleDeleteConfirm = () => {
+  const groupDatesByMonth = async () => {
+    try {
+      const productionRef = collection(db, 'producao_hora');
+      const querySnapshot = await getDocs(productionRef);
+      
+      // Objeto para armazenar os dados agrupados
+      const groupedData = {};
+      
+      // Processar todos os documentos
+      querySnapshot.docs.forEach(doc => {
+        const data = doc.data();
+        const date = data.data?.toDate?.() || new Date(data.data);
+        const monthKey = date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+        const dateKey = date.toDateString();
+        
+        if (!groupedData[monthKey]) {
+          groupedData[monthKey] = {
+            dates: {},
+            isExpanded: false
+          };
+        }
+        
+        if (!groupedData[monthKey].dates[dateKey]) {
+          groupedData[monthKey].dates[dateKey] = {
+            date,
+            count: 0,
+            registros: []
+          };
+        }
+        
+        groupedData[monthKey].dates[dateKey].count++;
+        groupedData[monthKey].dates[dateKey].registros.push(data);
+      });
+
+      return groupedData;
+    } catch (error) {
+      console.error('Erro ao agrupar datas:', error);
+      return {};
+    }
+  };
+
+  const handleDeleteModeChange = async (mode) => {
+    setDeleteMode(mode);
+    if (mode === 'date') {
+      const groupedDates = await groupDatesByMonth();
+      if (Object.keys(groupedDates).length > 0) {
+        setAvailableDates(groupedDates);
+        setShowDatesList(true);
+      } else {
+        Alert.alert('Aviso', 'Não há datas com registros disponíveis.');
+      }
+    }
+  };
+
+  const handleDateSelect = (date) => {
+    // Garantir que a data está no formato correto
+    const selectedDate = new Date(date);
+    // Definir a hora para o final do dia para garantir que todos os registros do dia sejam incluídos
+    selectedDate.setHours(23, 59, 59, 999);
+    
+    // Em vez de chamar handleDeleteConfirm diretamente, vamos passar a data como parâmetro
+    handleDeleteConfirm(selectedDate);
+  };
+
+  const handleDeleteConfirm = (dateToDelete = selectedDeleteDate) => {
     setPasswordModalVisible(false);
     setShowDeleteOptions(false);
+    
+    console.log('Data selecionada para deletar:', dateToDelete);
     
     Alert.alert(
       'Confirmação Final',
       deleteMode === 'all' 
         ? 'Isso irá remover TODOS os dados do sistema. Esta ação não pode ser desfeita.'
-        : `Isso irá remover todos os dados até ${formatDate(selectedDeleteDate)}. Esta ação não pode ser desfeita.`,
+        : `Isso irá remover todos os dados do dia ${formatDate(dateToDelete)}. Esta ação não pode ser desfeita.`,
       [
         {
           text: 'Cancelar',
-          style: 'cancel'
+          style: 'cancel',
+          onPress: () => {
+            // Limpar estados ao cancelar
+            setSelectedDeleteDate(new Date());
+            setDeleteMode('all');
+            setShowDatesList(false);
+          }
         },
         {
           text: 'Confirmar',
@@ -92,7 +181,11 @@ export default function ProductionDataScreen({ navigation }) {
                 const data = doc.data();
                 const docDate = data.data?.toDate?.() || new Date(data.data);
 
-                if (deleteMode === 'all' || (deleteMode === 'date' && docDate <= selectedDeleteDate)) {
+                const isSameDate = docDate.getDate() === dateToDelete.getDate() &&
+                                 docDate.getMonth() === dateToDelete.getMonth() &&
+                                 docDate.getFullYear() === dateToDelete.getFullYear();
+
+                if (deleteMode === 'all' || (deleteMode === 'date' && isSameDate)) {
                   await deleteDoc(doc.ref);
                   deletedCount++;
                 }
@@ -102,6 +195,19 @@ export default function ProductionDataScreen({ navigation }) {
                 'Sucesso',
                 `${deletedCount} registros foram removidos.`
               );
+
+              // Limpar estados após exclusão bem-sucedida
+              setSelectedDeleteDate(new Date());
+              setDeleteMode('all');
+              setShowDatesList(false);
+              setAvailableDates([]); // Limpar datas disponíveis
+              
+              // Atualizar a lista de datas após a exclusão
+              if (deleteMode === 'date') {
+                const groupedDates = await groupDatesByMonth();
+                setAvailableDates(groupedDates);
+              }
+
             } catch (error) {
               console.error('Erro ao limpar dados:', error);
               Alert.alert('Erro', 'Não foi possível limpar os dados.');
@@ -325,6 +431,65 @@ export default function ProductionDataScreen({ navigation }) {
     });
   }, []);
 
+  // Componente para renderizar a lista de datas agrupadas
+  const GroupedDatesList = () => {
+    const [expandedMonth, setExpandedMonth] = useState(null);
+
+    const toggleMonth = (month) => {
+      setExpandedMonth(expandedMonth === month ? null : month);
+    };
+
+    return (
+      <ScrollView style={styles.datesList}>
+        {Object.entries(availableDates).map(([month, monthData]) => (
+          <View key={month} style={styles.monthContainer}>
+            <TouchableOpacity 
+              style={styles.monthHeader}
+              onPress={() => toggleMonth(month)}
+            >
+              <View style={styles.monthTitleContainer}>
+                <MaterialIcons 
+                  name={expandedMonth === month ? "keyboard-arrow-down" : "keyboard-arrow-right"} 
+                  size={24} 
+                  color={colors.primary} 
+                />
+                <Text style={styles.monthTitle}>{month}</Text>
+              </View>
+              <Text style={styles.dateCount}>
+                {Object.keys(monthData.dates).length} dias
+              </Text>
+            </TouchableOpacity>
+
+            {expandedMonth === month && (
+              <View style={styles.datesContainer}>
+                {Object.entries(monthData.dates).map(([dateKey, dateData]) => (
+                  <TouchableOpacity
+                    key={dateKey}
+                    style={styles.dateItem}
+                    onPress={() => handleDateSelect(dateData.date)}
+                  >
+                    <View style={styles.dateInfo}>
+                      <Text style={styles.dateText}>
+                        {dateData.date.toLocaleDateString('pt-BR', {
+                          weekday: 'long',
+                          day: '2-digit'
+                        })}
+                      </Text>
+                      <Text style={styles.registroCount}>
+                        {dateData.count} registros
+                      </Text>
+                    </View>
+                    <MaterialIcons name="delete" size={20} color={colors.danger} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+        ))}
+      </ScrollView>
+    );
+  };
+
   return (
     <View style={globalStyles.container}>
       <View style={styles.headerContainer}>
@@ -413,6 +578,17 @@ export default function ProductionDataScreen({ navigation }) {
                   </TouchableOpacity>
                 </View>
               </>
+            ) : showDatesList ? (
+              <>
+                <Text style={styles.modalSubtitle}>Selecione uma data para deletar:</Text>
+                <GroupedDatesList />
+                <TouchableOpacity 
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={() => setShowDatesList(false)}
+                >
+                  <Text style={styles.cancelButtonText}>Voltar</Text>
+                </TouchableOpacity>
+              </>
             ) : (
               <>
                 <Text style={styles.modalSubtitle}>Selecione o tipo de limpeza:</Text>
@@ -447,16 +623,6 @@ export default function ProductionDataScreen({ navigation }) {
                   </TouchableOpacity>
                 </View>
 
-                {deleteMode === 'date' && (
-                  <TouchableOpacity 
-                    style={styles.dateSelector}
-                    onPress={() => setDeleteDatePickerVisible(true)}
-                  >
-                    <Text>Deletar até: {formatDate(selectedDeleteDate)}</Text>
-                    <MaterialIcons name="calendar-today" size={20} color={colors.primary} />
-                  </TouchableOpacity>
-                )}
-
                 <View style={styles.modalButtons}>
                   <TouchableOpacity 
                     style={[styles.modalButton, styles.cancelButton]}
@@ -470,7 +636,7 @@ export default function ProductionDataScreen({ navigation }) {
                   </TouchableOpacity>
                   <TouchableOpacity 
                     style={[styles.modalButton, styles.confirmButton]}
-                    onPress={handleDeleteConfirm}
+                    onPress={() => handleDeleteConfirm()}
                   >
                     <Text style={styles.confirmButtonText}>Confirmar</Text>
                   </TouchableOpacity>
@@ -479,13 +645,12 @@ export default function ProductionDataScreen({ navigation }) {
             )}
 
             <DateTimePickerModal
-              isVisible={isDeleteDatePickerVisible}
+              isVisible={false}
               mode="date"
               onConfirm={(date) => {
                 setSelectedDeleteDate(date);
-                setDeleteDatePickerVisible(false);
               }}
-              onCancel={() => setDeleteDatePickerVisible(false)}
+              onCancel={() => {}}
               date={selectedDeleteDate}
             />
           </View>
@@ -777,20 +942,62 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontWeight: 'bold',
   },
-  dateSelector: {
+  monthContainer: {
+    marginBottom: 8,
+    backgroundColor: colors.white,
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  monthHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: colors.background,
+  },
+  monthTitleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 12,
-    borderRadius: 8,
-    backgroundColor: colors.background,
-    marginBottom: 20,
   },
-  dateSelectorText: {
-    fontSize: 14,
+  monthTitle: {
+    fontSize: 16,
+    fontWeight: '600',
     color: colors.text,
+    textTransform: 'capitalize',
   },
-  selectedText: {
-    fontWeight: 'bold',
+  dateCount: {
+    fontSize: 14,
+    color: colors.textLight,
+  },
+  datesContainer: {
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  dateItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  dateInfo: {
+    flex: 1,
+  },
+  dateText: {
+    fontSize: 15,
+    color: colors.text,
+    textTransform: 'capitalize',
+  },
+  registroCount: {
+    fontSize: 13,
+    color: colors.textLight,
+    marginTop: 2,
+  },
+  datesList: {
+    maxHeight: 400,
+    marginVertical: 15,
   },
 }); 
