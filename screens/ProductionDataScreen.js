@@ -5,6 +5,7 @@ import { getAuth } from 'firebase/auth';
 import { globalStyles, colors } from '../styles/globalStyles';
 import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
+import { useProductionData } from '../hooks/useProductionData';
 
 const LINHAS = ['A', 'B', 'C', 'G', 'H', 'J', 'K', 'L', 'M', 'N', 'VR'];
 const TURNOS = ['A', 'B', 'C', 'X', 'Y', 'Todos'];
@@ -24,6 +25,7 @@ export default function ProductionDataScreen({ navigation }) {
   const [showDatesList, setShowDatesList] = useState(false);
   const db = getFirestore();
   const auth = getAuth();
+  const { fetchProductionData } = useProductionData();
 
   const formatDate = (date) => {
     if (!date) return '';
@@ -387,49 +389,9 @@ export default function ProductionDataScreen({ navigation }) {
     navigation.navigate('ProductionDetail', {
       linha,
       registros,
-      fetchProductionData,
       selectedTurno
     });
   };
-
-  const fetchProductionData = async (linha, selectedTurno = 'Todos') => {
-    try {
-      const productionRef = collection(db, 'producao_hora');
-      let q;
-      
-      if (selectedTurno !== 'Todos') {
-        q = query(
-          productionRef,
-          where('linha', '==', linha),
-          where('turno', '==', selectedTurno)
-        );
-      } else {
-        q = query(
-          productionRef,
-          where('linha', '==', linha)
-        );
-      }
-      
-      const querySnapshot = await getDocs(q);
-      const registros = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        data: doc.data().data?.toDate?.() || doc.data().data
-      }));
-      
-      return registros;
-    } catch (error) {
-      console.error('Erro ao buscar dados:', error);
-      Alert.alert('Erro', 'Não foi possível atualizar os dados.');
-      return [];
-    }
-  };
-
-  useEffect(() => {
-    navigation.setParams({
-      fetchProductionData: fetchProductionData
-    });
-  }, []);
 
   // Componente para renderizar a lista de datas agrupadas
   const GroupedDatesList = () => {

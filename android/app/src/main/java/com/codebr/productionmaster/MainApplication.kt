@@ -1,4 +1,4 @@
-package com.otrebor.producaomaster
+package com.codebr.productionmaster
 
 import android.app.Application
 import android.content.res.Configuration

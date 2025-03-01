@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "Produção Master",
+    "name": "Production Master",
     "slug": "producao-master",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./src/assets/logo.png",
     "splash": {
-      "image": "./assets/splash.png",
+      "image": "./src/assets/logo.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -18,15 +18,17 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "newArchEnabled": true
+      "newArchEnabled": true,
+      "bundleIdentifier": "com.codebr.productionmaster"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./src/assets/logo.png",
         "backgroundColor": "#FFFFFF"
       },
       "newArchEnabled": true,
-      "package": "com.otrebor.producaomaster"
+      "package": "com.codebr.productionmaster",
+      "icon": "./src/assets/logo.png"
     },
     "web": {
       "favicon": "./assets/favicon.png"

@@ -44,8 +44,12 @@ export default function LoginScreen({ navigation }) {
       >
         <View style={styles.content}>
           <View style={styles.logoContainer}>
-            <MaterialIcons name="analytics" size={80} color={colors.primary} />
-            <Text style={styles.title}>Produção Master</Text>
+            <Image 
+              source={require('../src/assets/logo.png')} 
+              style={styles.logo}
+              resizeMode="contain"
+            />
+            <Text style={styles.title}>Production Master</Text>
             <Text style={styles.subtitle}>Monitoramento em tempo real</Text>
           </View>
 
@@ -109,25 +113,31 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     justifyContent: 'center',
+    alignItems: 'center',
     padding: 20,
   },
   logoContainer: {
     alignItems: 'center',
     marginBottom: 40,
   },
+  logo: {
+    width: 150,
+    height: 150,
+    marginBottom: 10,
+  },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
     color: colors.primary,
-    marginTop: 10,
+    marginBottom: 5,
   },
   subtitle: {
     fontSize: 16,
     color: colors.textLight,
-    marginTop: 5,
   },
   formContainer: {
     width: '100%',
+    maxWidth: 400,
   },
   inputContainer: {
     flexDirection: 'row',

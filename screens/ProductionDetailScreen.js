@@ -7,6 +7,7 @@ import { PieChart, BarChart, LineChart } from 'react-native-chart-kit';
 import ViewShot from "react-native-view-shot";
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { useProductionData } from '../hooks/useProductionData';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -26,7 +27,8 @@ const chartColors = {
 };
 
 export default function ProductionDetailScreen({ route, navigation }) {
-  const { linha, registros: initialRegistros, fetchProductionData, selectedTurno } = route.params;
+  const { linha, registros: initialRegistros, selectedTurno } = route.params;
+  const { fetchProductionData } = useProductionData();
   const [registros, setRegistros] = useState(initialRegistros);
   const [selectedRegistro, setSelectedRegistro] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
@@ -38,11 +40,9 @@ export default function ProductionDetailScreen({ route, navigation }) {
   const handleRefresh = async () => {
     try {
       setIsRefreshing(true);
-      if (fetchProductionData) {
-        const newRegistros = await fetchProductionData(linha, selectedTurno);
-        if (newRegistros && newRegistros.length > 0) {
-          setRegistros(newRegistros);
-        }
+      const newRegistros = await fetchProductionData(linha, selectedTurno);
+      if (newRegistros && newRegistros.length > 0) {
+        setRegistros(newRegistros);
       }
     } catch (error) {
       console.error('Erro ao atualizar:', error);
