@@ -29,11 +29,43 @@ const chartColors = {
 export default function ProductionDetailScreen({ route, navigation }) {
   const { linha, registros: initialRegistros, selectedTurno } = route.params;
   const { fetchProductionData } = useProductionData();
+  
+  // Função para criar uma data no início do dia (00:00:00) no fuso horário local
+  const createLocalDate = (date) => {
+    const newDate = new Date(date);
+    // Ajusta para meia-noite no fuso horário local
+    newDate.setHours(12, 0, 0, 0);
+    return newDate;
+  };
+
+  // Função para comparar se duas datas são o mesmo dia
+  const isSameDay = (date1, date2) => {
+    const d1 = new Date(date1);
+    const d2 = new Date(date2);
+    return d1.getDate() === d2.getDate() &&
+           d1.getMonth() === d2.getMonth() &&
+           d1.getFullYear() === d2.getFullYear();
+  };
+
+  // Inicializar selectedDate com a data do primeiro registro
+  const initialDate = useMemo(() => {
+    if (initialRegistros && initialRegistros.length > 0) {
+      return createLocalDate(initialRegistros[0].data);
+    }
+    return createLocalDate(new Date());
+  }, [initialRegistros]);
+  
+  console.log('DEBUG - Data inicial:', {
+    initialDate: initialDate.toISOString(),
+    firstRegistro: initialRegistros[0]?.data,
+    localeDateString: initialDate.toLocaleDateString()
+  });
+
   const [registros, setRegistros] = useState(initialRegistros);
   const [selectedRegistro, setSelectedRegistro] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [expandedRow, setExpandedRow] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(initialDate);
   const [isDatePickerVisible, setDatePickerVisible] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -41,6 +73,12 @@ export default function ProductionDetailScreen({ route, navigation }) {
     try {
       setIsRefreshing(true);
       const newRegistros = await fetchProductionData(linha, selectedTurno);
+      console.log('DEBUG - Novos dados após refresh:', newRegistros?.map(reg => ({
+        data: reg.data,
+        dataOriginal: reg.data,
+        dataAjustada: createLocalDate(reg.data).toISOString()
+      })));
+      
       if (newRegistros && newRegistros.length > 0) {
         setRegistros(newRegistros);
       }
@@ -95,6 +133,19 @@ export default function ProductionDetailScreen({ route, navigation }) {
     }
   };
 
+  // Filtrar registros pela data selecionada
+  const filteredRegistros = useMemo(() => {
+    console.log('DEBUG - Filtrando registros:', {
+      selectedDate: selectedDate.toISOString(),
+      selectedLocalDate: selectedDate.toLocaleDateString(),
+      registrosCount: registros.length
+    });
+
+    return registros.filter(registro => {
+      return isSameDay(new Date(registro.data), selectedDate);
+    });
+  }, [registros, selectedDate]);
+
   // Função para formatar a data
   const formatDate = (date) => {
     return date.toLocaleDateString('pt-BR', {
@@ -103,23 +154,6 @@ export default function ProductionDetailScreen({ route, navigation }) {
       year: 'numeric'
     });
   };
-
-  // Filtrar registros pela data selecionada
-  const filteredRegistros = useMemo(() => {
-    return registros.filter(registro => {
-      const registroDate = new Date(registro.data);
-      return registroDate.toDateString() === selectedDate.toDateString();
-    });
-  }, [registros, selectedDate]);
-
-  // Ordenar registros filtrados por horário e turno
-  const sortedRegistros = useMemo(() => {
-    return [...filteredRegistros].sort((a, b) => {
-      const timeA = timeToMinutes(a.horaInicio, a.turno);
-      const timeB = timeToMinutes(b.horaInicio, b.turno);
-      return timeA - timeB;
-    });
-  }, [filteredRegistros]);
 
   // Funções para o DatePicker
   const showDatePicker = () => {
@@ -131,7 +165,18 @@ export default function ProductionDetailScreen({ route, navigation }) {
   };
 
   const handleConfirm = (date) => {
-    setSelectedDate(date);
+    console.log('DEBUG - Data selecionada no picker:', {
+      original: date.toISOString(),
+      localDate: date.toLocaleDateString()
+    });
+    
+    const newDate = createLocalDate(date);
+    console.log('DEBUG - Nova data ajustada:', {
+      adjusted: newDate.toISOString(),
+      localDate: newDate.toLocaleDateString()
+    });
+    
+    setSelectedDate(newDate);
     hideDatePicker();
   };
 
@@ -209,6 +254,15 @@ export default function ProductionDetailScreen({ route, navigation }) {
       </View>
     );
   };
+
+  // Ordenar registros filtrados por horário e turno
+  const sortedRegistros = useMemo(() => {
+    return [...filteredRegistros].sort((a, b) => {
+      const timeA = timeToMinutes(a.horaInicio, a.turno);
+      const timeB = timeToMinutes(b.horaInicio, b.turno);
+      return timeA - timeB;
+    });
+  }, [filteredRegistros]);
 
   // Calcular acumulados
   const registrosComAcumulado = sortedRegistros.map((registro, index) => {
